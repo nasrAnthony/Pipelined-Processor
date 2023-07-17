@@ -16,6 +16,15 @@ entity topMIPS is
 			ZeroOut : out std_logic;
 			MemWriteOut : out std_logic;
 			RegWriteOut : out std_logic
+			--ts_muxBuff : out std_logic
+			--ts_PCout : out std_logic_vector(7 downto 0);
+			--ts_PCinc : out std_logic_vector(7 downto 0);
+			--ts_Muxop2: out std_logic_vector(7 downto 0);
+			--tsINSTIFID : out std_logic_vector(31 downto 0);
+			--tsZero_flag : out std_logic;
+			--tsBEQ :out std_logic;
+			--tsFlush : out std_logic;
+			--tsMUXOUT : out std_logic_vector(7 downto 0)
 		);
 	
 end topMIPS;
@@ -23,7 +32,7 @@ end topMIPS;
 architecture RTL of topMIPS is 
 
 
-component reg32bit is --fore pc reg
+component reg32bit is --fore INSTR reg
 	port 
 		(
 			inBits : in std_logic_vector(31 downto 0);
@@ -235,6 +244,7 @@ component hazard_Unit is
 			IF_IDrt : in std_logic_vector(4 downto 0);
 			IF_IDrs : in std_logic_vector(4 downto 0);
 			ID_EXmemRead : in std_logic;
+			o_pcWRITE : out std_logic;
 			stallFlag : out std_logic
 		);
 end component;
@@ -338,12 +348,15 @@ signal midBranchMuchSelOut : std_logic;
 signal midAddRom, midAddRam : std_logic_vector(7 downto 0);
 signal midOutMux : std_logic_vector(7 downto 0);
 signal midCarryPc, midBranchCarry, midCarryOut, midZero, midOverFlow : std_logic;
-signal midStall, midIFIDwrite, midFlush, midPCwrite : std_logic := '0';
+signal midStall, midIFIDwrite, midFlush, midPCwrite : std_logic;
 signal midMuxOutBranch, midPCout, midPCpointFut, midPCinc : std_logic_vector(7 downto 0);
 signal midIDInstrOutMem, midInstOutMem : std_logic_vector(31 downto 0);
-
-begin
+signal notReset : std_logic;
+signal midbuff : std_logic;
+begin --NEWVER
+	notReset <= not(GReset);
 	midRegWrite <= midMEMWBstallFlag(1);
+	midbuff <= not(midZeroFlag and midBEQ);
 	midStallIDEX <= not midCntrlMux;
 --IF (instruction Fetch)
 reg_PC  : reg8bit
@@ -352,8 +365,9 @@ reg_PC  : reg8bit
 			(
 				inBits => midMuxOutBranch,
 				i_clk => GClock, 
-				i_resetNot => GReset, 
-				i_en => midPCwrite,  -- will act as stall input from hazard detect unit
+				i_resetNot => notReset, 
+				--i_en => '1', --midPCwrite, 
+				i_en => midPCwrite, -- will act as stall input from hazard detect unit
 				outBits => midPCout
 			);
 mux_PC  : mux2t1x8b
@@ -362,7 +376,7 @@ mux_PC  : mux2t1x8b
 			(
 				inp1 => midBranchALUAdd, 
 				inp2 => midPCinc, 
-				cntr => midZeroFlag and midBEQ, 
+				cntr => midbuff, 
 				outp2 => midMuxOutBranch
 			);
 adder_PC : cla8bitALU
@@ -371,7 +385,7 @@ adder_PC : cla8bitALU
 			(
 				inA =>  midPCout, 
 				inB => "00000100",
-				iCarry => midCarryPc,
+				iCarry => '0',
 				oRes => midPCpointFut
 			);
 instrMEM : instrMemoryROM
@@ -386,7 +400,7 @@ IFID : IFIDpipeReg
 	port 
 		map 
 			(
-				i_resetGlobal => GReset,
+				i_resetGlobal => notReset,
 				i_gclk => GClock, 
 				i_en => '1', 
 				i_flushFlag => midFlush, 
@@ -462,6 +476,7 @@ HAZARDUNIT : hazard_Unit
 				IF_IDrt => midIDinstrOutMem (25 downto 21), 
 				IF_IDrs => midIDinstrOutMem (20 downto 16),
 				ID_EXmemRead => midIDEXmemRead, 
+				o_pcWRITE  => midPCwrite, 
 				stallFlag => midCntrlMux
 			);
 regFile_unit : fileRegister 
@@ -469,7 +484,7 @@ regFile_unit : fileRegister
 			map 
 				(
 					i_clk => GClock,
-					i_resetNot => GReset, 
+					i_resetNot => notReset, 
 					i_regWrite => midWriteAssrt, 
 					i_readReg1 => midIDInstrOutMem(25 downto 23), 
 					i_readReg2 => midIDInstrOutMem(22 downto 20), 
@@ -485,7 +500,7 @@ IDEX : IDEXpipeReg
 	port 
 		map 
 			(
-				i_resetGlobal => GReset, 
+				i_resetGlobal => notReset, 
 				i_gclk => GClock, 
 				i_en => midStallIDEX, 
 				i_readData_1 => midData1, 
@@ -558,7 +573,7 @@ EXMEM_pipeREG : EXMEMpipeReg
 		port 
 			map 
 				(
-					i_resetGlobal => GReset, 
+					i_resetGlobal => notReset, 
 					i_gclk => GClock, 
 					i_en => midSTALLFlagIDEX, 
 					i_vectWB => midIDEXStallMux(8 downto 7), 
@@ -585,7 +600,7 @@ MEMWB_pipeReg : MEMWBpipeReg
 	port 
 		map 
 			(
-				i_resetGlobal => GReset, 
+				i_resetGlobal => notReset, 
 				i_gclk => GClock, 
 				i_en => midStallIDEX,
 				i_memData => midDataMemOut, 
@@ -634,6 +649,15 @@ InstructionOut <= midInstOutMem;
 RegWriteOut <= midRegWrite;
 MemWriteOut <= midWriteAssrt;
 ZeroOut <= midZero;
-BranchOut <= midBranchMuchSelOut;		
+BranchOut <= midBranchMuchSelOut;	
+--ts_PCout <= midPCout;
+--ts_PCinc <= midPCinc;
+--ts_Muxop2 <= midBranchALUAdd;
+--tsINSTIFID <= midIDInstrOutMem;
+--tsZero_flag <= midZeroFlag;
+--tsMUXOUT <= midMuxOutBranch;
+--tsBEQ <= midBEQ;
+--tsFlush <= midFlush;
+--ts_muxBuff <= midbuff;
 
 end RTL;

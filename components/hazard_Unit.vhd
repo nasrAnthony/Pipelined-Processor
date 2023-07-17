@@ -9,6 +9,7 @@ entity hazard_Unit is
 			IF_IDrt : in std_logic_vector(4 downto 0);
 			IF_IDrs : in std_logic_vector(4 downto 0);
 			ID_EXmemRead : in std_logic;
+			o_pcWRITE : out std_logic;
 			stallFlag : out std_logic
 		);
 end entity;
@@ -26,5 +27,6 @@ c2 <= (ID_EXrt(0) xnor IF_IDrs(0)) and (ID_EXrt(1) xnor IF_IDrs(1))
 		and (ID_EXrt(4) xnor IF_IDrs(4));
 --drive stall control output : 
 stallFlag <= (c2 or c1) and ID_EXmemRead;--memread implies a lw, therefore generate a stall flag. 
+o_pcWRITE <= not((c2 or c1) and ID_EXmemRead);
 end RTL;
 
